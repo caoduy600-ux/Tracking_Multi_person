@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+outputs/
+people_db/
+/*.pt
+*.zip
+*.patch
+.vscode/
