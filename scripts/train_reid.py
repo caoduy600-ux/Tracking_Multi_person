@@ -71,7 +71,7 @@ def main():
 
     data_dir = "outputs/crops"
     if not os.path.exists(data_dir) or len(os.listdir(data_dir)) == 0:
-        print(f"[!] Không tìm thấy dữ liệu trong {data_dir}. Hãy chạy localv.py hoặc live_cam.py trước để có ảnh crop.")
+        print(f"[!] Không tìm thấy dữ liệu trong {data_dir}. Hãy chạy scripts/run_live_cam.py (bật phím 'c') trước để có ảnh crop.")
         return
 
     # Transforms
@@ -93,7 +93,7 @@ def main():
     model.train()
 
     criterion_id = nn.CrossEntropyLoss()
-    criterion_triplet = TripletLoss(margin=0.3)
+    criterion_triplet = TripletLoss(margin=0.35)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.0003, weight_decay=5e-4)
 
     epochs = 5
@@ -119,8 +119,11 @@ def main():
         avg_l = total_loss / max(1, len(dataloader))
         print(f"  Epoch [{epoch+1}/{epochs}] - Loss: {avg_l:.4f}")
 
-    # Lưu trọng số customized model
-    save_path = "custom_reid_net.pth"
+    # Lưu trọng số customized model vào models/ (đúng chỗ ReIDExtractor dò tìm)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    models_dir = os.path.join(repo_root, "models")
+    os.makedirs(models_dir, exist_ok=True)
+    save_path = os.path.join(models_dir, "custom_reid_net.pth")
     torch.save(model.state_dict(), save_path)
     print("=" * 65)
     print(f"[*] HUẤN LUYỆN HOÀN TẤT! Đã lưu model tại: {save_path}")

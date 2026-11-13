@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.association.global_manager import GlobalIdentityManager
 from src.topology.camera_graph import CameraTopology
+from src.tracking import resolve_tracker_config
 
 
 st.set_page_config(
@@ -34,6 +35,7 @@ st.set_page_config(
 # Khởi tạo state
 if "manager" not in st.session_state:
     st.session_state.manager = GlobalIdentityManager(
+        reid_backend="onnx",
         reid_model_path="yolo26n-reid.onnx",
         similarity_thresh=0.35,
         use_topology=True
@@ -54,6 +56,11 @@ with st.sidebar:
     conf_thresh = st.slider("Ngưỡng Detection Conf", 0.20, 0.90, 0.45, 0.05)
     sim_thresh = st.slider("Ngưỡng ReID Similarity", 0.20, 0.70, 0.35, 0.02)
     use_topo = st.checkbox("Bật ràng buộc Camera Topology (NetworkX)", value=True)
+
+    # Áp dụng ngay cấu hình người dùng chọn vào bộ quản lý danh tính đang chạy
+    # (trước đây 2 widget này bị bỏ qua vì manager chỉ khởi tạo 1 lần trong session_state).
+    st.session_state.manager.similarity_thresh = sim_thresh
+    st.session_state.manager.set_topology_enabled(use_topo)
     
     st.markdown("---")
     if st.button("🔄 Reset Toàn Bộ Gallery"):
@@ -85,14 +92,30 @@ with tab1:
         st.markdown("#### 👥 Danh tính toàn cục (Global IDs)")
         gallery_table_placeholder = st.empty()
 
+    if source_type == "Giả lập 3 Camera từ Webcam":
+        st.info("Chế độ giả lập 3 camera chạy ở cửa sổ OpenCV riêng: "
+                "`python scripts/run_multi_cam.py --virtual-split`")
+    video_path = ""
+    if source_type == "Video File mẫu":
+        video_path = st.text_input("Đường dẫn file video", value="outputs/annotated.mp4")
+
     if run_cam:
-        cam_id_input = 0
-        cap = cv2.VideoCapture(cam_id_input)
+        if source_type == "Video File mẫu":
+            if not video_path or not os.path.exists(video_path):
+                st.error(f"Không tìm thấy file video: {video_path}")
+                st.stop()
+            cam_source = video_path
+        else:
+            cam_source = 0
+        cap = cv2.VideoCapture(cam_source)
+        if not cap.isOpened():
+            st.error(f"Không mở được nguồn video: {cam_source}")
+            st.stop()
         
         # Load YOLO
         yolo_model_name = model_choice.split()[0]
         yolo_net = YOLO(yolo_model_name)
-        tracker_cfg = "botsort_reid.yaml" if os.path.exists("botsort_reid.yaml") else "botsort.yaml"
+        tracker_cfg = resolve_tracker_config("tracker.yaml")
         device = 0 if has_cuda else "cpu"
 
         prev_t = time.time()
@@ -104,8 +127,9 @@ with tab1:
                 st.warning("Không đọc được tín hiệu từ camera.")
                 break
 
-            # Lật như gương
-            frame = cv2.flip(frame, 1)
+            # Lật như gương (chỉ với webcam; video file giữ nguyên chiều)
+            if source_type != "Video File mẫu":
+                frame = cv2.flip(frame, 1)
 
             h, w = frame.shape[:2]
             cur_time = time.time()
@@ -122,7 +146,7 @@ with tab1:
             )
 
             current_p = 0
-            if results[0].boxes.id is not None:
+            if results[0].boxes is not None and results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
                 track_ids = results[0].boxes.id.int().cpu().numpy()
                 current_p = len(track_ids)

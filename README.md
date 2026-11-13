@@ -9,11 +9,11 @@ MTMCT-Vision (Multi-Target Multi-Camera Tracking Vision) là giải pháp thị 
 ## Tính năng chính
 
 - **Nguồn dữ liệu linh hoạt:** Hỗ trợ luồng webcam máy tính, tệp video ngoại tuyến, luồng RTSP / IP Camera từ điện thoại (DroidCam, IP Webcam) và cơ chế **Virtual Multi-Camera Split** (tách 1 webcam thành 3 góc camera độc lập kèm vùng mù).
-- **Phát hiện & Bám vết cục bộ (Local Tracking):** Nhận diện người chính xác cao bằng YOLOv8; duy trì vết chuyển động cục bộ qua bộ lọc Kalman và giải thuật liên kết ByteTrack / BoT-SORT với bộ đệm bộ nhớ `track_buffer = 30`.
+- **Phát hiện & Bám vết cục bộ (Local Tracking):** Nhận diện người chính xác cao bằng YOLOv8; duy trì vết chuyển động cục bộ qua bộ lọc Kalman và giải thuật liên kết ByteTrack / BoT-SORT với bộ đệm bộ nhớ `track_buffer = 500` (configs/tracker.yaml).
 - **Mạng ReID tùy biến với Metric Learning (CustomReIDNet):** Kiến trúc sâu tích hợp cổ chai **BNNeck (Batch Normalization Neck)** và hàm mất mát **Hard-Mining Triplet Loss**, chiếu vector đặc trưng người 512 chiều lên mặt cầu đơn vị ($L_2$ sphere).
 - **Ràng buộc Đồ thị Không - Thời Gian (NetworkX Topology):** Mô hình hóa bản đồ giao thông liên phòng bằng đồ thị có trọng số; kiểm tra tính khả thi vật lý của bước chuyển $[T_{\min}, T_{\max}]$, triệt tiêu hiện tượng dịch chuyển tức thời phi thực tế.
 - **Ràng buộc loại trừ không gian (Spatial Mutual Exclusion):** Chặn đứng hiện tượng trùng danh tính (hai người cùng đứng trong một khung hình không bao giờ bị gán chung một Global ID).
-- **Cập nhật đặc trưng động (EMA Feature Fusion):** Thích nghi mượt mà theo thời gian thực ($f_{t} = 0.85 f_{t-1} + 0.15 f_{\text{new}}$) khi đối tượng thay đổi dáng đi, xoay người hoặc đổi hướng di chuyển.
+- **Cập nhật đặc trưng động (EMA Feature Fusion):** Thích nghi mượt mà theo thời gian thực ($f_{t} = \alpha f_{t-1} + (1-\alpha) f_{\text{new}}$, với $\alpha = 0.80$ khi tái định danh và $0.90$ khi làm mượt định kỳ) khi đối tượng thay đổi dáng đi, xoay người hoặc đổi hướng di chuyển.
 - **Bản đồ mặt bằng 2D tương tác (2D Floor Plan):** Chiếu tọa độ và biểu diễn trực quan quỹ đạo di chuyển (Trajectory) xuyên suốt các phòng theo thời gian thực.
 - **Bảng điều khiển Web Dashboard:** Giám sát trực tiếp, tra cứu lịch sử sự kiện và phân tích biểu đồ FPS độ trễ qua Streamlit.
 
@@ -193,7 +193,6 @@ MTMCT-Vision/
 │   └── test_pipeline.py
 │
 └── docs/                       # Tài liệu báo cáo học thuật & Sơ đồ kiến trúc
-    ├── Bao_Cao_BTL_DIP_He_Thong_Theo_Doi_Lien_Camera.docx
     └── images/                 # Sơ đồ độ phân giải cao 300 DPI
         ├── fig_topology_floorplan.png
         ├── fig_custom_reid.png

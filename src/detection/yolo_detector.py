@@ -11,10 +11,10 @@ from ultralytics import YOLO
 def resolve_yolo_weights(weights_name="yolov8s.pt"):
     """
     Tự động dò tìm đường dẫn file trọng số YOLO (.pt) trong thư mục gốc hoặc thư mục models/.
-    Đặc biệt: Tự động phát hiện và xử lý trường hợp người dùng tải repo bằng nút 'Download ZIP'
+    Đặc biệt: Tự động phát hiện và BỎ QUA trường hợp người dùng tải repo bằng nút 'Download ZIP'
     trên GitHub khiến file .pt bị biến thành file con trỏ Git LFS (chỉ nặng ~130 bytes, bắt đầu bằng chữ 'version').
-    Khi phát hiện file < 10KB, hàm sẽ tự xóa file con trỏ lỗi đó và trả về tên chuẩn (VD: 'yolov8s.pt')
-    để thư viện Ultralytics tự động tải file trọng số thật về máy.
+    Khi phát hiện file < 10KB, hàm chỉ cảnh báo rồi bỏ qua ứng viên đó (KHÔNG xóa file của người dùng)
+    và trả về tên chuẩn (VD: 'yolov8s.pt') để thư viện Ultralytics tự động tải trọng số thật về máy.
     """
     candidates = [
         weights_name,
@@ -29,9 +29,8 @@ def resolve_yolo_weights(weights_name="yolov8s.pt"):
             try:
                 # Kiểm tra nếu file nhỏ hơn 10KB -> Chắc chắn là file text con trỏ Git LFS (130 bytes)
                 if os.path.getsize(abs_p) < 10240:
-                    print(f"[!] Phat hien file Git LFS pointer (<10KB) tai: {abs_p}")
-                    print(f"[*] Dang xoa file pointer loi va tu dong tai {os.path.basename(weights_name)} tu Ultralytics...")
-                    os.remove(abs_p)
+                    print(f"[!] Bo qua file Git LFS pointer (<10KB) tai: {abs_p}")
+                    print(f"[*] Ultralytics se tu dong tai {os.path.basename(weights_name)} that ve may.")
                     continue
             except OSError:
                 pass

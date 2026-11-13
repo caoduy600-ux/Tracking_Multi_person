@@ -128,12 +128,45 @@ class GlobalIdentityManager:
         # Nhật ký sự kiện (Event Log) lưu lịch sử cấp mới / tái nhận diện để xuất báo cáo
         self.event_log = []
 
+        # Sổ theo dõi KHUNG HÌNH HIỆN TẠI của từng camera, phục vụ Ràng buộc Loại trừ Không gian:
+        # dict {cam_id: {"time": <moc thoi gian cua frame>, "gids": {global_id: local_track_id}}}
+        # Chỉ những Global ID ĐANG hiện diện trong chính khung hình này mới bị loại trừ,
+        # thay vì loại trừ mọi ID từng xuất hiện trong 1.5 giây gần nhất (gây cấp ID mới oan
+        # mỗi khi tracker đánh mất vết rồi bắt lại dưới một local_track_id khác).
+        self.frame_state = {}
+        # Cửa sổ gộp DÙNG RIÊNG cho trường hợp caller không truyền `current_time`
+        # (khi đó mỗi bbox tự lấy time.time() nên không thể nhận ra mốc frame).
+        # Các script của dự án đều tính `current_time` 1 lần cho mỗi frame rồi truyền cho mọi
+        # bbox, nên frame được nhận dạng bằng cách so khớp CHÍNH XÁC mốc thời gian đó —
+        # không dùng dung sai, vì ở 30 FPS hai frame chỉ cách nhau 0.033s.
+        self.autogroup_window = 0.5
+
     def reset(self):
         """Xóa trắng bộ nhớ Gallery (dùng khi muốn chạy lại từ đầu)."""
         self.gallery.clear()
         self.local_to_global.clear()
         self.event_log.clear()
+        self.frame_state.clear()
         self.next_global_id = 1
+
+    def _frame_bucket(self, cam_id, current_time, explicit_time=True):
+        """
+        Lấy (hoặc mở mới) sổ ghi của khung hình hiện tại trên camera `cam_id`.
+        - `explicit_time=True` (caller truyền `current_time`): mọi bbox của cùng 1 frame mang
+          CÙNG MỘT mốc thời gian, nên chỉ cần so khớp chính xác; mốc khác = đã sang frame mới.
+        - `explicit_time=False` (caller để `current_time=None`): không có mốc frame, đành gộp
+          các lời gọi cách nhau dưới `autogroup_window` giây vào cùng một frame.
+        """
+        state = self.frame_state.get(cam_id)
+        if state is not None and state["explicit"] == explicit_time:
+            if explicit_time:
+                if state["time"] == current_time:
+                    return state
+            elif (current_time - state["time"]) <= self.autogroup_window:
+                return state
+        state = {"time": current_time, "explicit": explicit_time, "gids": {}}
+        self.frame_state[cam_id] = state
+        return state
 
     def match_or_create(self, cam_id, local_track_id, crop_bgr, box, current_time=None):
         """
@@ -150,11 +183,13 @@ class GlobalIdentityManager:
         Đầu ra:
             Tuple (global_id, color, is_new, similarity)
         """
-        if current_time is None:
+        explicit_time = current_time is not None
+        if not explicit_time:
             current_time = time.time()
 
         key = (cam_id, local_track_id)
-        
+        bucket = self._frame_bucket(cam_id, current_time, explicit_time)
+
         # =====================================================================
         # TRƯỜNG HỢP 1: Local Track này ĐÃ ĐƯỢC GÁN Global ID ở các frame trước
         # =====================================================================
@@ -162,7 +197,8 @@ class GlobalIdentityManager:
             gid = self.local_to_global[key]
             identity = self.gallery[gid]
             identity.add_trajectory_point(cam_id, box, current_time, local_track_id=local_track_id)
-            
+            bucket["gids"][gid] = local_track_id  # Ghi nhận: ID này ĐANG hiện trong frame này
+
             # Định kỳ mỗi 15 frame mới chạy mạng CNN ReID 1 lần để cập nhật EMA đặc trưng (tiết kiệm GPU/CPU)
             if identity.total_detections % 15 == 0:
                 feat = self.extractor.extract_crop_feature(crop_bgr)
@@ -183,12 +219,14 @@ class GlobalIdentityManager:
                 time_delta = current_time - identity.last_seen_time
                 
                 # [TẦNG LỌC 1] RÀNG BUỘC LOẠI TRỪ KHÔNG GIAN (SPATIAL MUTUAL EXCLUSION):
-                # Một người không thể phân thân thành 2 BBox khác nhau trong cùng 1 khung hình!
-                # Nếu Global ID `gid` vừa mới được nhìn thấy ở chính `cam_id` này (trong vòng 1.5s)
-                # nhưng lại đang gắn với một `last_local_id` khác -> Chắc chắn là 2 người khác nhau!
-                if identity.last_cam == cam_id and time_delta < 1.5:
-                    if identity.last_local_id != local_track_id:
-                        continue
+                # Một người không thể phân thân thành 2 BBox khác nhau trong CÙNG 1 KHUNG HÌNH!
+                # Chỉ loại trừ các Global ID ĐÃ ĐƯỢC GÁN cho một bbox khác NGAY TRONG frame này.
+                # (Trước đây loại trừ mọi ID xuất hiện trong 1.5s gần nhất, khiến một người bị
+                #  tracker đánh mất vết rồi bắt lại dưới local_track_id mới không bao giờ được
+                #  đem ra so khớp ReID -> luôn bị cấp Global ID mới, gây lạm phát ID.)
+                bound_local = bucket["gids"].get(gid)
+                if bound_local is not None and bound_local != local_track_id:
+                    continue
 
                 # [TẦNG LỌC 2] RÀNG BUỘC ĐỒ THỊ TOPOLOGY KHÔNG GIAN - THỜI GIAN:
                 # Kiểm tra xem việc di chuyển từ `identity.last_cam` sang `cam_id` sau `time_delta` giây
@@ -218,7 +256,8 @@ class GlobalIdentityManager:
             identity.update_feature(feat, alpha=0.80)
             identity.add_trajectory_point(cam_id, box, current_time, local_track_id=local_track_id)
             self.local_to_global[key] = gid
-            
+            bucket["gids"][gid] = local_track_id
+
             self.event_log.append({
                 "time": current_time,
                 "event": "REID_MATCH",
@@ -249,6 +288,7 @@ class GlobalIdentityManager:
             
             self.gallery[gid] = new_identity
             self.local_to_global[key] = gid
+            bucket["gids"][gid] = local_track_id
 
             self.event_log.append({
                 "time": current_time,
@@ -259,6 +299,43 @@ class GlobalIdentityManager:
                 "similarity": best_sim
             })
             return gid, new_identity.color, True, best_sim
+
+    def set_topology_enabled(self, enabled):
+        """Bat/tat rang buoc do thi khong - thoi gian trong luc dang chay (dung cho Dashboard)."""
+        if enabled and self.topology is None:
+            self.topology = CameraTopology()
+        elif not enabled:
+            self.topology = None
+
+    def get_summary(self):
+        """
+        Xuat bang tong hop toan bo Global ID trong Gallery phuc vu hien thi Dashboard / bao cao.
+        Tra ve: list[dict] gom cac khoa
+            global_id    : Ma dinh danh toan cuc
+            total_points : So frame da bat gap doi tuong nay
+            last_camera  : Camera gan nhat nhin thay
+            cameras      : Danh sach cac camera doi tuong da di qua
+            first_seen   : Thoi diem xuat hien dau tien (epoch giay)
+            last_seen    : Thoi diem xuat hien gan nhat (epoch giay)
+            duration_sec : Tong thoi gian ton tai trong he thong
+        """
+        summary = []
+        for gid in sorted(self.gallery.keys()):
+            identity = self.gallery[gid]
+            cams = []
+            for point in identity.trajectory:
+                if point["cam_id"] not in cams:
+                    cams.append(point["cam_id"])
+            summary.append({
+                "global_id": identity.global_id,
+                "total_points": identity.total_detections,
+                "last_camera": identity.last_cam,
+                "cameras": cams,
+                "first_seen": identity.first_seen_time,
+                "last_seen": identity.last_seen_time,
+                "duration_sec": round(identity.last_seen_time - identity.first_seen_time, 2),
+            })
+        return summary
 
     def get_active_identities(self, timeout_sec=30.0):
         """Lấy danh sách các Global ID đang hoạt động (xuất hiện trong vòng `timeout_sec` giây gần nhất)."""

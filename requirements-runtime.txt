@@ -5,6 +5,7 @@
 # Core Computer Vision & Object Tracking
 ultralytics>=8.0.0
 opencv-python>=4.8.0
+lap>=0.5.12          # Hungarian matching cho BoT-SORT/ByteTrack (Ultralytics can, neu thieu se tu tai giua luc chay)
 
 # Spatial-Temporal Graph & Scientific Computing
 networkx>=3.0

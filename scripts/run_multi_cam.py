@@ -195,6 +195,9 @@ class ThreadedCameraStream:
             return False, None
         with self.lock:
             if self.grabbed:
+                # Danh dau da tieu thu khung hinh nay, tranh retrieve() lai dung frame cu
+                # khi luong mang bi nghen (grab() chua kip lay packet moi).
+                self.grabbed = False
                 ret, frame = self.cap.retrieve()
                 if ret and frame is not None:
                     return True, frame

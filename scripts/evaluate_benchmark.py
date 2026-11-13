@@ -24,6 +24,7 @@ if sys.stdout.encoding.lower() != 'utf-8':
         pass
 
 from src.reid.reid_extractor import ReIDExtractor
+from src.detection.yolo_detector import resolve_yolo_weights
 from src.topology.camera_graph import CameraTopology
 from src.association.global_manager import GlobalIdentityManager
 
@@ -38,7 +39,7 @@ def run_benchmark(video_path="outputs/annotated.mp4", max_frames=200):
     print("=" * 65)
 
     # 1. Đo latency trích xuất đặc trưng ReID
-    extractor = ReIDExtractor("yolo26n-reid.onnx")
+    extractor = ReIDExtractor(backend="onnx", model_path="yolo26n-reid.onnx")
     dummy_crop = np.random.randint(0, 255, (256, 128, 3), dtype=np.uint8)
 
     reid_times = []
@@ -65,15 +66,15 @@ def run_benchmark(video_path="outputs/annotated.mp4", max_frames=200):
         ("YOLOv8n (Nano)", "yolov8n.pt"),
         ("YOLOv8s (Small)", "yolov8s.pt"),
     ]
-    if os.path.exists("yolov8m.pt"):
+    if os.path.exists(os.path.join("models", "yolov8m.pt")) or os.path.exists("yolov8m.pt"):
         models_to_test.append(("YOLOv8m (Medium)", "yolov8m.pt"))
 
     dummy_frame = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
 
     for m_label, m_file in models_to_test:
-        if not os.path.exists(m_file):
-            continue
-        model = YOLO(m_file)
+        # Dò trong models/ thay vì chỉ thư mục gốc (trước đây bảng đo detector luôn rỗng)
+        weights = resolve_yolo_weights(m_file)
+        model = YOLO(weights)
         # Warmup
         for _ in range(5):
             _ = model.predict(dummy_frame, device=device, verbose=False)
